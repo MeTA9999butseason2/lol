@@ -1,0 +1,176 @@
+--Setup RemoteFunctions and RemoteEvents
+for _, object in pairs(main.signals:GetChildren()) do
+	
+	--Remove functions
+	if object:IsA("RemoteFunction") then
+		local rfunction = object
+		function rfunction.OnServerInvoke(player,args,...)
+			local pdata = main.pd[player]
+			if pdata then
+				
+				--Sanity Checks
+				if not sanityChecks[player] then
+					sanityChecks[player] = {}
+				end
+				local requests = sanityChecks[player][rfunction]
+				if not requests then
+					requests = 1
+					sanityChecks[player][rfunction] = requests
+				else
+					sanityChecks[player][rfunction] = requests + 1
+				end
+				if requests > requestsLimit then
+					modules.cf:FormatAndFireError(player, "RequestsLimit")
+					wait(1)
+				end
+				
+				---------------------------------------------
+				if rfunction.Name == "RetrieveData" then
+					
+					if not main.initialized then
+						main.signals.Initialized.Event:Wait()
+					end
+					if not pdata or not pdata.SetupData then
+						repeat wait(0.1) pdata = main.pd[player] until (pdata and pdata.SetupData) or not player
+					end
+					local dataToReturn = {
+						["pdata"] = pdata;
+						permissions = main.permissions;
+						commandInfo = main.commandInfo;
+						commandRanks = main.commandRanks;
+						infoOnAllCommands = main.infoOnAllCommands;
+						settings = {
+							Ranks = main.settings.Ranks;
+							UniversalPrefix = main.settings.UniversalPrefix;
+							Colors = main.settings.Colors;
+							ThemeColors = main.settings.ThemeColors;
+							Cmdbar = main.settings.Cmdbar;
+							Cmdbar2 = main.settings.Cmdbar2;
+							ViewBanland = main.settings.ViewBanland;
+							DisableAllNotices = main.settings.DisableAllNotices;
+							RankRequiredToViewPage = main.settings.RankRequiredToViewPage;
+							OnlyShowUsableCommands = main.settings.OnlyShowUsableCommands;
+							};
+						morphNames = main.morphNames;
+						toolNames = main.toolNames;
+						ownerName = main.ownerName;
+						ownerId = main.ownerId;
+						gameName = main.gameName;
+						};
+					return dataToReturn
+				
+				
+				---------------------------------------------	
+				elseif rfunction.Name == "RequestCommand" then
+					modules.Parser:ParseMessage(player, args, false, ...)
+				
+				
+				---------------------------------------------
+				elseif rfunction.Name == "ChangeSetting" then
+					local settingName = args[1]
+					local settingValue = main.settings[settingName]
+					local newValue = args[2]
+					if modules.cf:FindValue(main.validSettings, settingName) then
+						if settingName == "Prefix" then
+							if #newValue ~= 1 then
+								return "Prefix can only be 1 character!"
+							elseif newValue == main.settings.UniversalPrefix then
+								return "Cannot set to the UniversalPrefix!"
+							end
+						elseif string.sub(settingName, -7) == "SoundId" and not modules.cf:CheckIfValidSound(newValue) then
+							return "Invalid sound!"
+						elseif tonumber(settingValue) and not tonumber(newValue) then
+							return "Invalid number!"
+						end
+						modules.PlayerData:ChangeStat(player, settingName, newValue)
+						return "Success" 
+					end
+				
+				
+				---------------------------------------------	
+				elseif rfunction.Name == "RestoreDefaultSettings" then
+					local success = "Success"
+					for i,v in pairs(main.validSettings) do
+						local originalSetting = main.settings[v]
+						if originalSetting ~= nil then
+							modules.PlayerData:ChangeStat(player, v, originalSetting)
+						else
+							success = "Error"
+						end
+					end
+					return success
+					
+					
+				---------------------------------------------
+				elseif rfunction.Name == "RetrieveServerRanks" then
+					local serverRankInfo = {}
+					for i, plr in pairs(main.players:GetChildren()) do
+						local pdata = main.pd[plr]
+						if pdata and pdata.Rank > 0 then
+							local rankType = main.rankTypes[modules.cf:GetRankType(plr)]
+							table.insert(serverRankInfo, {Player = plr, RankId = pdata.Rank, RankType = rankType})
+						end
+					end
+					return serverRankInfo
+					
+				
+				---------------------------------------------
+				elseif rfunction.Name == "RetrieveBanland" then
+					local banlandInfo = {{},{}}
+					local pdata = main.pd[player]
+					if pdata and pdata.Rank >= main.settings.ViewBanland then
+						local toScan = {main.serverBans, main.sd.Banland.Records}
+						local timeNow = os.time()
+						local usersAdded = {}
+						for section, records in pairs(toScan) do
+							for i, record in pairs(records) do
+								local banTime = record.BanTime
+								if (not tonumber(banTime) or timeNow < (banTime-30)) and not usersAdded[record.UserId] then
+									usersAdded[record.UserId] = true
+									table.insert(banlandInfo[section], record)
+								end
+							end
+						end
+					end
+					return banlandInfo 
+					
+				
+				---------------------------------------------
+				elseif rfunction.Name == "RetrieveRanksInfo" then
+					
+					local permRanksInfo = {}
+					local ranks = {}
+					local permissions = {}
+					local pdata = main.pd[player]
+					if pdata and main.sd.PermRanks  then
+						
+						--PermRanksInfo
+						if pdata.Rank >= main.settings.RankRequiredToViewRankType.specificusers or 5 then
+							permRanksInfo = main.sd.PermRanks.Records
+						end
+						
+						--Ranks
+						for i,v in pairs(main.settings.Ranks) do
+							local rankId = v[1]
+							if pdata.Rank >= (main.settings.RankRequiredToViewRank[rankId] or 0) then
+								table.insert(ranks, v)
+							end
+						end
+						
+						--Permissions
+						for pName, pDetails in pairs(main.permissions) do
+							pName = string.lower(pName)
+							local pRank = main.settings.RankRequiredToViewRankType[pName]
+							if pdata.Rank >= (pRank or 0) then
+								permissions[pName] = pDetails
+							end
+						end
+						
+					end
+					
+					return {
+						["PermRanks"] = permRanksInfo;
+						["Ranks"] = ranks;
+						["Permissions"] = permissions;
+					} 
+					
